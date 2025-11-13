@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invoice Generator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    // Lucide React icons as inline SVG components
+    const Download = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+    );
+
+    const Plus = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+      </svg>
+    );
+
+    const Trash2 = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    );
+
+    const Building = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+      </svg>
+    );
+
+    const User = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+    );
+
+    function InvoiceGenerator() {
+      const [invoiceData, setInvoiceData] = useState({
+        invoiceNumber: 'INV-001',
+        invoiceDate: new Date().toISOString().split('T')[0],
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        
+        fromName: '',
+        fromEmail: '',
+        fromPhone: '',
+        fromAddress: '',
+        fromCity: '',
+        fromState: '',
+        fromZip: '',
+        fromCountry: '',
+        
+        toName: '',
+        toEmail: '',
+        toPhone: '',
+        toAddress: '',
+        toCity: '',
+        toState: '',
+        toZip: '',
+        toCountry: '',
+        
+        items: [
+          { description: '', quantity: 1, rate: 0 }
+        ],
+        
+        notes: '',
+        terms: '',
+        taxRate: 0,
+        discountRate: 0,
+        currency: 'USD'
+      });
+
+      const currencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'INR'];
+
+      const addItem = () => {
+        setInvoiceData({
+          ...invoiceData,
+          items: [...invoiceData.items, { description: '', quantity: 1, rate: 0 }]
+        });
+      };
+
+      const removeItem = (index) => {
+        const newItems = invoiceData.items.filter((_, i) => i !== index);
+        setInvoiceData({ ...invoiceData, items: newItems });
+      };
+
+      const updateItem = (index, field, value) => {
+        const newItems = [...invoiceData.items];
+        newItems[index][field] = field === 'description' ? value : parseFloat(value) || 0;
+        setInvoiceData({ ...invoiceData, items: newItems });
+      };
+
+      const calculateSubtotal = () => {
+        return invoiceData.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
+      };
+
+      const calculateDiscount = () => {
+        return calculateSubtotal() * (invoiceData.discountRate / 100);
+      };
+
+      const calculateTax = () => {
+        return (calculateSubtotal() - calculateDiscount()) * (invoiceData.taxRate / 100);
+      };
+
+      const calculateTotal = () => {
+        return calculateSubtotal() - calculateDiscount() + calculateTax();
+      };
+
+      const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: invoiceData.currency
+        }).format(amount);
+      };
+
+      const generatePDF = () => {
+        const invoice = document.getElementById('invoice-preview');
+        const opt = {
+          margin: 0.5,
+          filename: `invoice-${invoiceData.invoiceNumber}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+
+        window.html2pdf().set(opt).from(invoice).save();
+      };
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+          <div className="max-w-7xl mx-auto">
+            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">Invoice Generator</h1>
+              <p className="text-gray-600">Create professional invoices and download as PDF</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white rounded-lg shadow-lg p-6 space-y-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4">Invoice Details</h2>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
+                      <input
+                        type="text"
+                        value={invoiceData.invoiceNumber}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, invoiceNumber: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
+                      <select
+                        value={invoiceData.currency}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, currency: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        {currencies.map(curr => (
+                          <option key={curr} value={curr}>{curr}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Date</label>
+                      <input
+                        type="date"
+                        value={invoiceData.invoiceDate}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, invoiceDate: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                      <input
+                        type="date"
+                        value={invoiceData.dueDate}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, dueDate: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <Building className="w-5 h-5" />
+                    From (Your Business)
+                  </h2>
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      placeholder="Business Name"
+                      value={invoiceData.fromName}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, fromName: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="email"
+                        placeholder="Email"
+                        value={invoiceData.fromEmail}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, fromEmail: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="tel"
+                        placeholder="Phone"
+                        value={invoiceData.fromPhone}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, fromPhone: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Street Address"
+                      value={invoiceData.fromAddress}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, fromAddress: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        placeholder="City"
+                        value={invoiceData.fromCity}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, fromCity: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="text"
+                        placeholder="State/Province"
+                        value={invoiceData.fromState}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, fromState: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        placeholder="ZIP/Postal Code"
+                        value={invoiceData.fromZip}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, fromZip: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Country"
+                        value={invoiceData.fromCountry}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, fromCountry: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <User className="w-5 h-5" />
+                    Bill To (Client)
+                  </h2>
+                  <div className="space-y-3">
+                    <input
+                      type="text"
+                      placeholder="Client Name"
+                      value={invoiceData.toName}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, toName: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="email"
+                        placeholder="Email"
+                        value={invoiceData.toEmail}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, toEmail: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="tel"
+                        placeholder="Phone"
+                        value={invoiceData.toPhone}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, toPhone: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Street Address"
+                      value={invoiceData.toAddress}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, toAddress: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        placeholder="City"
+                        value={invoiceData.toCity}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, toCity: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="text"
+                        placeholder="State/Province"
+                        value={invoiceData.toState}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, toState: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        placeholder="ZIP/Postal Code"
+                        value={invoiceData.toZip}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, toZip: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Country"
+                        value={invoiceData.toCountry}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, toCountry: e.target.value })}
+                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4">Line Items</h2>
+                  <div className="space-y-3">
+                    {invoiceData.items.map((item, index) => (
+                      <div key={index} className="flex gap-2 items-start">
+                        <input
+                          type="text"
+                          placeholder="Description"
+                          value={item.description}
+                          onChange={(e) => updateItem(index, 'description', e.target.value)}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Qty"
+                          value={item.quantity}
+                          onChange={(e) => updateItem(index, 'quantity', e.target.value)}
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Rate"
+                          value={item.rate}
+                          onChange={(e) => updateItem(index, 'rate', e.target.value)}
+                          className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <button
+                          onClick={() => removeItem(index)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={addItem}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Item
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Discount (%)</label>
+                    <input
+                      type="number"
+                      value={invoiceData.discountRate}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, discountRate: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tax (%)</label>
+                    <input
+                      type="number"
+                      value={invoiceData.taxRate}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, taxRate: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                  <textarea
+                    value={invoiceData.notes}
+                    onChange={(e) => setInvoiceData({ ...invoiceData, notes: e.target.value })}
+                    placeholder="Additional notes or information"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    rows="3"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Terms & Conditions</label>
+                  <textarea
+                    value={invoiceData.terms}
+                    onChange={(e) => setInvoiceData({ ...invoiceData, terms: e.target.value })}
+                    placeholder="Payment terms, late fees, etc."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    rows="3"
+                  />
+                </div>
+              </div>
+
+              <div className="lg:sticky lg:top-4 space-y-4">
+                <div className="bg-white rounded-lg shadow-lg p-8" id="invoice-preview">
+                  <div className="border-b-2 border-gray-200 pb-6 mb-6">
+                    <h1 className="text-4xl font-bold text-gray-800">INVOICE</h1>
+                    <p className="text-gray-600 mt-2">#{invoiceData.invoiceNumber}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-8 mb-8">
+                    <div>
+                      <h3 className="font-semibold text-gray-700 mb-2">From:</h3>
+                      <div className="text-sm text-gray-600">
+                        {invoiceData.fromName && <p className="font-medium text-gray-800">{invoiceData.fromName}</p>}
+                        {invoiceData.fromAddress && <p>{invoiceData.fromAddress}</p>}
+                        {(invoiceData.fromCity || invoiceData.fromState || invoiceData.fromZip) && (
+                          <p>{[invoiceData.fromCity, invoiceData.fromState, invoiceData.fromZip].filter(Boolean).join(', ')}</p>
+                        )}
+                        {invoiceData.fromCountry && <p>{invoiceData.fromCountry}</p>}
+                        {invoiceData.fromEmail && <p>{invoiceData.fromEmail}</p>}
+                        {invoiceData.fromPhone && <p>{invoiceData.fromPhone}</p>}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-semibold text-gray-700 mb-2">Bill To:</h3>
+                      <div className="text-sm text-gray-600">
+                        {invoiceData.toName && <p className="font-medium text-gray-800">{invoiceData.toName}</p>}
+                        {invoiceData.toAddress && <p>{invoiceData.toAddress}</p>}
+                        {(invoiceData.toCity || invoiceData.toState || invoiceData.toZip) && (
+                          <p>{[invoiceData.toCity, invoiceData.toState, invoiceData.toZip].filter(Boolean).join(', ')}</p>
+                        )}
+                        {invoiceData.toCountry && <p>{invoiceData.toCountry}</p>}
+                        {invoiceData.toEmail && <p>{invoiceData.toEmail}</p>}
+                        {invoiceData.toPhone && <p>{invoiceData.toPhone}</p>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mb-8 text-sm">
+                    <div>
+                      <span className="text-gray-600">Invoice Date:</span>
+                      <span className="ml-2 font-medium">{invoiceData.invoiceDate}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Due Date:</span>
+                      <span className="ml-2 font-medium">{invoiceData.dueDate}</span>
+                    </div>
+                  </div>
+
+                  <table className="w-full mb-8">
+                    <thead>
+                      <tr className="border-b-2 border-gray-200">
+                        <th className="text-left py-3 text-sm font-semibold text-gray-700">Description</th>
+                        <th className="text-center py-3 text-sm font-semibold text-gray-700 w-20">Qty</th>
+                        <th className="text-right py-3 text-sm font-semibold text-gray-700 w-24">Rate</th>
+                        <th className="text-right py-3 text-sm font-semibold text-gray-700 w-28">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoiceData.items.map((item, index) => (
+                        <tr key={index} className="border-b border-gray-100">
+                          <td className="py-3 text-sm text-gray-700">{item.description || 'Item description'}</td>
+                          <td className="py-3 text-sm text-gray-700 text-center">{item.quantity}</td>
+                          <td className="py-3 text-sm text-gray-700 text-right">{formatCurrency(item.rate)}</td>
+                          <td className="py-3 text-sm text-gray-700 text-right">{formatCurrency(item.quantity * item.rate)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="flex justify-end mb-8">
+                    <div className="w-64">
+                      <div className="flex justify-between py-2 text-sm">
+                        <span className="text-gray-600">Subtotal:</span>
+                        <span className="font-medium">{formatCurrency(calculateSubtotal())}</span>
+                      </div>
+                      {invoiceData.discountRate > 0 && (
+                        <div className="flex justify-between py-2 text-sm">
+                          <span className="text-gray-600">Discount ({invoiceData.discountRate}%):</span>
+                          <span className="font-medium text-red-600">-{formatCurrency(calculateDiscount())}</span>
+                        </div>
+                      )}
+                      {invoiceData.taxRate > 0 && (
+                        <div className="flex justify-between py-2 text-sm">
+                          <span className="text-gray-600">Tax ({invoiceData.taxRate}%):</span>
+                          <span className="font-medium">{formatCurrency(calculateTax())}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between py-3 text-lg font-bold border-t-2 border-gray-200 mt-2">
+                        <span>Total:</span>
+                        <span>{formatCurrency(calculateTotal())}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {invoiceData.notes && (
+                    <div className="mb-6">
+                      <h3 className="font-semibold text-gray-700 mb-2">Notes:</h3>
+                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{invoiceData.notes}</p>
+                    </div>
+                  )}
+
+                  {invoiceData.terms && (
+                    <div>
+                      <h3 className="font-semibold text-gray-700 mb-2">Terms & Conditions:</h3>
+                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{invoiceData.terms}</p>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={generatePDF}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-lg font-medium"
+                >
+                  <Download className="w-5 h-5" />
+                  Download PDF
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<InvoiceGenerator />, document.getElementById('root'));
+  </script>
+</body>
+</html>
