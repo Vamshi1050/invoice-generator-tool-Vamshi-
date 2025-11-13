@@ -9,6 +9,17 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+    }
+    .invoice-container {
+      background: white;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+  </style>
 </head>
 <body>
   <div id="root"></div>
@@ -16,7 +27,7 @@
   <script type="text/babel">
     const { useState } = React;
 
-    // Lucide React icons as inline SVG components
+    // Icons
     const Download = ({ className }) => (
       <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -47,48 +58,34 @@
       </svg>
     );
 
+    const Cloud = ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+      </svg>
+    );
+
+    const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID_HERE.apps.googleusercontent.com';
+    const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
     function InvoiceGenerator() {
       const [invoiceData, setInvoiceData] = useState({
         invoiceNumber: 'INV-001',
         invoiceDate: new Date().toISOString().split('T')[0],
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        
-        fromName: '',
-        fromEmail: '',
-        fromPhone: '',
-        fromAddress: '',
-        fromCity: '',
-        fromState: '',
-        fromZip: '',
-        fromCountry: '',
-        
-        toName: '',
-        toEmail: '',
-        toPhone: '',
-        toAddress: '',
-        toCity: '',
-        toState: '',
-        toZip: '',
-        toCountry: '',
-        
-        items: [
-          { description: '', quantity: 1, rate: 0 }
-        ],
-        
-        notes: '',
-        terms: '',
-        taxRate: 0,
-        discountRate: 0,
-        currency: 'USD'
+        fromName: '', fromEmail: '', fromPhone: '', fromAddress: '', fromCity: '', fromState: '', fromZip: '', fromCountry: '',
+        toName: '', toEmail: '', toPhone: '', toAddress: '', toCity: '', toState: '', toZip: '', toCountry: '',
+        items: [{ description: '', quantity: 1, rate: 0 }],
+        notes: '', terms: '', taxRate: 0, discountRate: 0, currency: 'USD'
       });
+
+      const [isSignedIn, setIsSignedIn] = useState(false);
+      const [accessToken, setAccessToken] = useState(null);
+      const [uploadStatus, setUploadStatus] = useState('');
 
       const currencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'INR'];
 
       const addItem = () => {
-        setInvoiceData({
-          ...invoiceData,
-          items: [...invoiceData.items, { description: '', quantity: 1, rate: 0 }]
-        });
+        setInvoiceData({...invoiceData, items: [...invoiceData.items, { description: '', quantity: 1, rate: 0 }]});
       };
 
       const removeItem = (index) => {
@@ -102,235 +99,226 @@
         setInvoiceData({ ...invoiceData, items: newItems });
       };
 
-      const calculateSubtotal = () => {
-        return invoiceData.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
-      };
-
-      const calculateDiscount = () => {
-        return calculateSubtotal() * (invoiceData.discountRate / 100);
-      };
-
-      const calculateTax = () => {
-        return (calculateSubtotal() - calculateDiscount()) * (invoiceData.taxRate / 100);
-      };
-
-      const calculateTotal = () => {
-        return calculateSubtotal() - calculateDiscount() + calculateTax();
-      };
+      const calculateSubtotal = () => invoiceData.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
+      const calculateDiscount = () => calculateSubtotal() * (invoiceData.discountRate / 100);
+      const calculateTax = () => (calculateSubtotal() - calculateDiscount()) * (invoiceData.taxRate / 100);
+      const calculateTotal = () => calculateSubtotal() - calculateDiscount() + calculateTax();
 
       const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-US', {
-          style: 'currency',
-          currency: invoiceData.currency
-        }).format(amount);
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency: invoiceData.currency }).format(amount);
+      };
+
+      const handleGoogleSignIn = () => {
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID,
+          scope: SCOPES,
+          callback: (response) => {
+            if (response.access_token) {
+              setAccessToken(response.access_token);
+              setIsSignedIn(true);
+              setUploadStatus('Connected to Google Drive!');
+              setTimeout(() => setUploadStatus(''), 3000);
+            }
+          },
+        });
+        client.requestAccessToken();
       };
 
       const generatePDF = () => {
+        // Hide everything except the invoice
+        const body = document.body;
+        const invoice = document.getElementById('invoice-preview');
+        
+        // Store original content
+        const originalContent = body.innerHTML;
+        
+        // Create print-friendly version
+        const printContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>Invoice ${invoiceData.invoiceNumber}</title>
+            <style>
+              @page { margin: 0.5in; }
+              body { 
+                font-family: Arial, sans-serif; 
+                margin: 0; 
+                padding: 20px;
+                background: white;
+              }
+              * { box-sizing: border-box; }
+            </style>
+          </head>
+          <body>
+            ${invoice.innerHTML}
+          </body>
+          </html>
+        `;
+        
+        // Open print dialog
+        const printWindow = window.open('', '', 'width=800,height=600');
+        printWindow.document.write(printContent);
+        printWindow.document.close();
+        printWindow.focus();
+        
+        setTimeout(() => {
+          printWindow.print();
+          printWindow.close();
+        }, 250);
+      };
+
+      const uploadToGoogleDrive = async () => {
+        if (!accessToken) {
+          alert('Please sign in to Google Drive first!');
+          return;
+        }
+
+        setUploadStatus('Generating PDF...');
+        
         const invoice = document.getElementById('invoice-preview');
         const opt = {
-          margin: 0.5,
+          margin: [0.5, 0.5, 0.5, 0.5],
           filename: `invoice-${invoiceData.invoiceNumber}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2 },
+          html2canvas: { 
+            scale: 2,
+            useCORS: true,
+            letterRendering: true
+          },
           jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
         };
 
-        window.html2pdf().set(opt).from(invoice).save();
+        try {
+          const pdfBlob = await window.html2pdf().set(opt).from(invoice).outputPdf('blob');
+          
+          setUploadStatus('Uploading to Google Drive...');
+
+          const metadata = {
+            name: `invoice-${invoiceData.invoiceNumber}.pdf`,
+            mimeType: 'application/pdf'
+          };
+
+          const form = new FormData();
+          form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+          form.append('file', pdfBlob);
+
+          const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`
+            },
+            body: form
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            setUploadStatus(`✓ Saved to Google Drive!`);
+            setTimeout(() => setUploadStatus(''), 5000);
+          } else {
+            throw new Error('Upload failed');
+          }
+        } catch (error) {
+          setUploadStatus('❌ Upload failed. Please try again.');
+          console.error(error);
+        }
       };
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
           <div className="max-w-7xl mx-auto">
-            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-              <h1 className="text-3xl font-bold text-gray-800 mb-2">Invoice Generator</h1>
-              <p className="text-gray-600">Create professional invoices and download as PDF</p>
+            <div className="bg-white rounded-lg shadow-lg p-6 mb-6 no-print">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-800 mb-2">Invoice Generator</h1>
+                  <p className="text-gray-600">Create professional invoices and save to Google Drive</p>
+                </div>
+                <div className="text-right">
+                  {!isSignedIn ? (
+                    <button
+                      onClick={handleGoogleSignIn}
+                      className="px-4 py-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm font-medium"
+                    >
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                      </svg>
+                      Sign in with Google
+                    </button>
+                  ) : (
+                    <div className="text-sm text-green-600 font-medium">✓ Connected to Google Drive</div>
+                  )}
+                  {uploadStatus && (
+                    <div className="mt-2 text-sm text-blue-600 font-medium">{uploadStatus}</div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-lg shadow-lg p-6 space-y-6">
+              <div className="bg-white rounded-lg shadow-lg p-6 space-y-6 no-print">
                 <div>
                   <h2 className="text-xl font-semibold text-gray-800 mb-4">Invoice Details</h2>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
-                      <input
-                        type="text"
-                        value={invoiceData.invoiceNumber}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, invoiceNumber: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="text" value={invoiceData.invoiceNumber} onChange={(e) => setInvoiceData({ ...invoiceData, invoiceNumber: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
-                      <select
-                        value={invoiceData.currency}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, currency: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        {currencies.map(curr => (
-                          <option key={curr} value={curr}>{curr}</option>
-                        ))}
+                      <select value={invoiceData.currency} onChange={(e) => setInvoiceData({ ...invoiceData, currency: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        {currencies.map(curr => (<option key={curr} value={curr}>{curr}</option>))}
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Date</label>
-                      <input
-                        type="date"
-                        value={invoiceData.invoiceDate}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, invoiceDate: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="date" value={invoiceData.invoiceDate} onChange={(e) => setInvoiceData({ ...invoiceData, invoiceDate: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-                      <input
-                        type="date"
-                        value={invoiceData.dueDate}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, dueDate: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="date" value={invoiceData.dueDate} onChange={(e) => setInvoiceData({ ...invoiceData, dueDate: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <Building className="w-5 h-5" />
-                    From (Your Business)
-                  </h2>
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2"><Building className="w-5 h-5"/>From (Your Business)</h2>
                   <div className="space-y-3">
-                    <input
-                      type="text"
-                      placeholder="Business Name"
-                      value={invoiceData.fromName}
-                      onChange={(e) => setInvoiceData({ ...invoiceData, fromName: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <input type="text" placeholder="Business Name" value={invoiceData.fromName} onChange={(e) => setInvoiceData({ ...invoiceData, fromName: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="email"
-                        placeholder="Email"
-                        value={invoiceData.fromEmail}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, fromEmail: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <input
-                        type="tel"
-                        placeholder="Phone"
-                        value={invoiceData.fromPhone}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, fromPhone: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="email" placeholder="Email" value={invoiceData.fromEmail} onChange={(e) => setInvoiceData({ ...invoiceData, fromEmail: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                      <input type="tel" placeholder="Phone" value={invoiceData.fromPhone} onChange={(e) => setInvoiceData({ ...invoiceData, fromPhone: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
-                    <input
-                      type="text"
-                      placeholder="Street Address"
-                      value={invoiceData.fromAddress}
-                      onChange={(e) => setInvoiceData({ ...invoiceData, fromAddress: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <input type="text" placeholder="Street Address" value={invoiceData.fromAddress} onChange={(e) => setInvoiceData({ ...invoiceData, fromAddress: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="text"
-                        placeholder="City"
-                        value={invoiceData.fromCity}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, fromCity: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <input
-                        type="text"
-                        placeholder="State/Province"
-                        value={invoiceData.fromState}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, fromState: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="text" placeholder="City" value={invoiceData.fromCity} onChange={(e) => setInvoiceData({ ...invoiceData, fromCity: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                      <input type="text" placeholder="State/Province" value={invoiceData.fromState} onChange={(e) => setInvoiceData({ ...invoiceData, fromState: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="text"
-                        placeholder="ZIP/Postal Code"
-                        value={invoiceData.fromZip}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, fromZip: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Country"
-                        value={invoiceData.fromCountry}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, fromCountry: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="text" placeholder="ZIP/Postal Code" value={invoiceData.fromZip} onChange={(e) => setInvoiceData({ ...invoiceData, fromZip: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                      <input type="text" placeholder="Country" value={invoiceData.fromCountry} onChange={(e) => setInvoiceData({ ...invoiceData, fromCountry: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <User className="w-5 h-5" />
-                    Bill To (Client)
-                  </h2>
+                  <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2"><User className="w-5 h-5"/>Bill To (Client)</h2>
                   <div className="space-y-3">
-                    <input
-                      type="text"
-                      placeholder="Client Name"
-                      value={invoiceData.toName}
-                      onChange={(e) => setInvoiceData({ ...invoiceData, toName: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <input type="text" placeholder="Client Name" value={invoiceData.toName} onChange={(e) => setInvoiceData({ ...invoiceData, toName: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="email"
-                        placeholder="Email"
-                        value={invoiceData.toEmail}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, toEmail: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <input
-                        type="tel"
-                        placeholder="Phone"
-                        value={invoiceData.toPhone}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, toPhone: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="email" placeholder="Email" value={invoiceData.toEmail} onChange={(e) => setInvoiceData({ ...invoiceData, toEmail: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                      <input type="tel" placeholder="Phone" value={invoiceData.toPhone} onChange={(e) => setInvoiceData({ ...invoiceData, toPhone: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
-                    <input
-                      type="text"
-                      placeholder="Street Address"
-                      value={invoiceData.toAddress}
-                      onChange={(e) => setInvoiceData({ ...invoiceData, toAddress: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <input type="text" placeholder="Street Address" value={invoiceData.toAddress} onChange={(e) => setInvoiceData({ ...invoiceData, toAddress: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="text"
-                        placeholder="City"
-                        value={invoiceData.toCity}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, toCity: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <input
-                        type="text"
-                        placeholder="State/Province"
-                        value={invoiceData.toState}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, toState: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="text" placeholder="City" value={invoiceData.toCity} onChange={(e) => setInvoiceData({ ...invoiceData, toCity: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                      <input type="text" placeholder="State/Province" value={invoiceData.toState} onChange={(e) => setInvoiceData({ ...invoiceData, toState: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <input
-                        type="text"
-                        placeholder="ZIP/Postal Code"
-                        value={invoiceData.toZip}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, toZip: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Country"
-                        value={invoiceData.toCountry}
-                        onChange={(e) => setInvoiceData({ ...invoiceData, toCountry: e.target.value })}
-                        className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                      <input type="text" placeholder="ZIP/Postal Code" value={invoiceData.toZip} onChange={(e) => setInvoiceData({ ...invoiceData, toZip: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                      <input type="text" placeholder="Country" value={invoiceData.toCountry} onChange={(e) => setInvoiceData({ ...invoiceData, toCountry: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                     </div>
                   </div>
                 </div>
@@ -340,177 +328,126 @@
                   <div className="space-y-3">
                     {invoiceData.items.map((item, index) => (
                       <div key={index} className="flex gap-2 items-start">
-                        <input
-                          type="text"
-                          placeholder="Description"
-                          value={item.description}
-                          onChange={(e) => updateItem(index, 'description', e.target.value)}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Qty"
-                          value={item.quantity}
-                          onChange={(e) => updateItem(index, 'quantity', e.target.value)}
-                          className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <input
-                          type="number"
-                          placeholder="Rate"
-                          value={item.rate}
-                          onChange={(e) => updateItem(index, 'rate', e.target.value)}
-                          className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <button
-                          onClick={() => removeItem(index)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
+                        <input type="text" placeholder="Description" value={item.description} onChange={(e) => updateItem(index, 'description', e.target.value)} className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                        <input type="number" placeholder="Qty" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', e.target.value)} className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                        <input type="number" placeholder="Rate" value={item.rate} onChange={(e) => updateItem(index, 'rate', e.target.value)} className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
+                        <button onClick={() => removeItem(index)} className="p-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"><Trash2 className="w-5 h-5"/></button>
                       </div>
                     ))}
-                    <button
-                      onClick={addItem}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Item
-                    </button>
+                    <button onClick={addItem} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"><Plus className="w-4 h-4"/>Add Item</button>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Discount (%)</label>
-                    <input
-                      type="number"
-                      value={invoiceData.discountRate}
-                      onChange={(e) => setInvoiceData({ ...invoiceData, discountRate: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <input type="number" value={invoiceData.discountRate} onChange={(e) => setInvoiceData({ ...invoiceData, discountRate: parseFloat(e.target.value) || 0 })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Tax (%)</label>
-                    <input
-                      type="number"
-                      value={invoiceData.taxRate}
-                      onChange={(e) => setInvoiceData({ ...invoiceData, taxRate: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <input type="number" value={invoiceData.taxRate} onChange={(e) => setInvoiceData({ ...invoiceData, taxRate: parseFloat(e.target.value) || 0 })} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"/>
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                  <textarea
-                    value={invoiceData.notes}
-                    onChange={(e) => setInvoiceData({ ...invoiceData, notes: e.target.value })}
-                    placeholder="Additional notes or information"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    rows="3"
-                  />
+                  <textarea value={invoiceData.notes} onChange={(e) => setInvoiceData({ ...invoiceData, notes: e.target.value })} placeholder="Additional notes or information" className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" rows="3"/>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Terms & Conditions</label>
-                  <textarea
-                    value={invoiceData.terms}
-                    onChange={(e) => setInvoiceData({ ...invoiceData, terms: e.target.value })}
-                    placeholder="Payment terms, late fees, etc."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    rows="3"
-                  />
+                  <textarea value={invoiceData.terms} onChange={(e) => setInvoiceData({ ...invoiceData, terms: e.target.value })} placeholder="Payment terms, late fees, etc." className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent" rows="3"/>
                 </div>
               </div>
 
               <div className="lg:sticky lg:top-4 space-y-4">
-                <div className="bg-white rounded-lg shadow-lg p-8" id="invoice-preview">
-                  <div className="border-b-2 border-gray-200 pb-6 mb-6">
-                    <h1 className="text-4xl font-bold text-gray-800">INVOICE</h1>
-                    <p className="text-gray-600 mt-2">#{invoiceData.invoiceNumber}</p>
+                <div className="invoice-container" style={{padding: '40px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: '750px', margin: '0 auto'}} id="invoice-preview">
+                  <div style={{borderBottom: '2px solid #e5e7eb', paddingBottom: '20px', marginBottom: '24px'}}>
+                    <h1 style={{fontSize: '32px', fontWeight: 'bold', color: '#1f2937', margin: '0 0 8px 0'}}>INVOICE</h1>
+                    <p style={{color: '#6b7280', margin: '0', fontSize: '14px'}}>#{invoiceData.invoiceNumber}</p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-8 mb-8">
+                  <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px'}}>
                     <div>
-                      <h3 className="font-semibold text-gray-700 mb-2">From:</h3>
-                      <div className="text-sm text-gray-600">
-                        {invoiceData.fromName && <p className="font-medium text-gray-800">{invoiceData.fromName}</p>}
-                        {invoiceData.fromAddress && <p>{invoiceData.fromAddress}</p>}
+                      <h3 style={{fontWeight: '600', color: '#374151', marginBottom: '8px', fontSize: '13px'}}>From:</h3>
+                      <div style={{fontSize: '12px', color: '#6b7280', lineHeight: '1.5'}}>
+                        {invoiceData.fromName && <p style={{fontWeight: '500', color: '#1f2937', margin: '2px 0'}}>{invoiceData.fromName}</p>}
+                        {invoiceData.fromAddress && <p style={{margin: '2px 0'}}>{invoiceData.fromAddress}</p>}
                         {(invoiceData.fromCity || invoiceData.fromState || invoiceData.fromZip) && (
-                          <p>{[invoiceData.fromCity, invoiceData.fromState, invoiceData.fromZip].filter(Boolean).join(', ')}</p>
+                          <p style={{margin: '2px 0'}}>{[invoiceData.fromCity, invoiceData.fromState, invoiceData.fromZip].filter(Boolean).join(', ')}</p>
                         )}
-                        {invoiceData.fromCountry && <p>{invoiceData.fromCountry}</p>}
-                        {invoiceData.fromEmail && <p>{invoiceData.fromEmail}</p>}
-                        {invoiceData.fromPhone && <p>{invoiceData.fromPhone}</p>}
+                        {invoiceData.fromCountry && <p style={{margin: '2px 0'}}>{invoiceData.fromCountry}</p>}
+                        {invoiceData.fromEmail && <p style={{margin: '2px 0'}}>{invoiceData.fromEmail}</p>}
+                        {invoiceData.fromPhone && <p style={{margin: '2px 0'}}>{invoiceData.fromPhone}</p>}
                       </div>
                     </div>
 
                     <div>
-                      <h3 className="font-semibold text-gray-700 mb-2">Bill To:</h3>
-                      <div className="text-sm text-gray-600">
-                        {invoiceData.toName && <p className="font-medium text-gray-800">{invoiceData.toName}</p>}
-                        {invoiceData.toAddress && <p>{invoiceData.toAddress}</p>}
+                      <h3 style={{fontWeight: '600', color: '#374151', marginBottom: '8px', fontSize: '13px'}}>Bill To:</h3>
+                      <div style={{fontSize: '12px', color: '#6b7280', lineHeight: '1.5'}}>
+                        {invoiceData.toName && <p style={{fontWeight: '500', color: '#1f2937', margin: '2px 0'}}>{invoiceData.toName}</p>}
+                        {invoiceData.toAddress && <p style={{margin: '2px 0'}}>{invoiceData.toAddress}</p>}
                         {(invoiceData.toCity || invoiceData.toState || invoiceData.toZip) && (
-                          <p>{[invoiceData.toCity, invoiceData.toState, invoiceData.toZip].filter(Boolean).join(', ')}</p>
+                          <p style={{margin: '2px 0'}}>{[invoiceData.toCity, invoiceData.toState, invoiceData.toZip].filter(Boolean).join(', ')}</p>
                         )}
-                        {invoiceData.toCountry && <p>{invoiceData.toCountry}</p>}
-                        {invoiceData.toEmail && <p>{invoiceData.toEmail}</p>}
-                        {invoiceData.toPhone && <p>{invoiceData.toPhone}</p>}
+                        {invoiceData.toCountry && <p style={{margin: '2px 0'}}>{invoiceData.toCountry}</p>}
+                        {invoiceData.toEmail && <p style={{margin: '2px 0'}}>{invoiceData.toEmail}</p>}
+                        {invoiceData.toPhone && <p style={{margin: '2px 0'}}>{invoiceData.toPhone}</p>}
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 mb-8 text-sm">
+                  <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px', fontSize: '12px'}}>
                     <div>
-                      <span className="text-gray-600">Invoice Date:</span>
-                      <span className="ml-2 font-medium">{invoiceData.invoiceDate}</span>
+                      <span style={{color: '#6b7280'}}>Invoice Date: </span>
+                      <span style={{fontWeight: '500', color: '#1f2937'}}>{invoiceData.invoiceDate}</span>
                     </div>
                     <div>
-                      <span className="text-gray-600">Due Date:</span>
-                      <span className="ml-2 font-medium">{invoiceData.dueDate}</span>
+                      <span style={{color: '#6b7280'}}>Due Date: </span>
+                      <span style={{fontWeight: '500', color: '#1f2937'}}>{invoiceData.dueDate}</span>
                     </div>
                   </div>
 
-                  <table className="w-full mb-8">
+                  <table style={{width: '100%', marginBottom: '24px', borderCollapse: 'collapse'}}>
                     <thead>
-                      <tr className="border-b-2 border-gray-200">
-                        <th className="text-left py-3 text-sm font-semibold text-gray-700">Description</th>
-                        <th className="text-center py-3 text-sm font-semibold text-gray-700 w-20">Qty</th>
-                        <th className="text-right py-3 text-sm font-semibold text-gray-700 w-24">Rate</th>
-                        <th className="text-right py-3 text-sm font-semibold text-gray-700 w-28">Amount</th>
+                      <tr style={{borderBottom: '2px solid #d1d5db'}}>
+                        <th style={{textAlign: 'left', padding: '10px 8px', fontSize: '12px', fontWeight: '600', color: '#374151'}}>Description</th>
+                        <th style={{textAlign: 'center', padding: '10px 8px', fontSize: '12px', fontWeight: '600', color: '#374151', width: '60px'}}>Qty</th>
+                        <th style={{textAlign: 'right', padding: '10px 8px', fontSize: '12px', fontWeight: '600', color: '#374151', width: '90px'}}>Rate</th>
+                        <th style={{textAlign: 'right', padding: '10px 8px', fontSize: '12px', fontWeight: '600', color: '#374151', width: '100px'}}>Amount</th>
                       </tr>
                     </thead>
                     <tbody>
                       {invoiceData.items.map((item, index) => (
-                        <tr key={index} className="border-b border-gray-100">
-                          <td className="py-3 text-sm text-gray-700">{item.description || 'Item description'}</td>
-                          <td className="py-3 text-sm text-gray-700 text-center">{item.quantity}</td>
-                          <td className="py-3 text-sm text-gray-700 text-right">{formatCurrency(item.rate)}</td>
-                          <td className="py-3 text-sm text-gray-700 text-right">{formatCurrency(item.quantity * item.rate)}</td>
+                        <tr key={index} style={{borderBottom: '1px solid #e5e7eb'}}>
+                          <td style={{padding: '10px 8px', fontSize: '11px', color: '#374151'}}>{item.description || 'Item description'}</td>
+                          <td style={{padding: '10px 8px', fontSize: '11px', color: '#374151', textAlign: 'center'}}>{item.quantity}</td>
+                          <td style={{padding: '10px 8px', fontSize: '11px', color: '#374151', textAlign: 'right'}}>{formatCurrency(item.rate)}</td>
+                          <td style={{padding: '10px 8px', fontSize: '11px', color: '#374151', textAlign: 'right', fontWeight: '500'}}>{formatCurrency(item.quantity * item.rate)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
 
-                  <div className="flex justify-end mb-8">
-                    <div className="w-64">
-                      <div className="flex justify-between py-2 text-sm">
-                        <span className="text-gray-600">Subtotal:</span>
-                        <span className="font-medium">{formatCurrency(calculateSubtotal())}</span>
+                  <div style={{display: 'flex', justifyContent: 'flex-end', marginBottom: '24px'}}>
+                    <div style={{width: '250px'}}>
+                      <div style={{display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', borderBottom: '1px solid #f3f4f6'}}>
+                        <span style={{color: '#6b7280'}}>Subtotal:</span>
+                        <span style={{fontWeight: '500', color: '#1f2937'}}>{formatCurrency(calculateSubtotal())}</span>
                       </div>
                       {invoiceData.discountRate > 0 && (
-                        <div className="flex justify-between py-2 text-sm">
-                          <span className="text-gray-600">Discount ({invoiceData.discountRate}%):</span>
-                          <span className="font-medium text-red-600">-{formatCurrency(calculateDiscount())}</span>
+                        <div style={{display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', borderBottom: '1px solid #f3f4f6'}}>
+                          <span style={{color: '#6b7280'}}>Discount ({invoiceData.discountRate}%):</span>
+                          <span style={{fontWeight: '500', color: '#dc2626'}}>-{formatCurrency(calculateDiscount())}</span>
                         </div>
                       )}
                       {invoiceData.taxRate > 0 && (
-                        <div className="flex justify-between py-2 text-sm">
-                          <span className="text-gray-600">Tax ({invoiceData.taxRate}%):</span>
-                          <span className="font-medium">{formatCurrency(calculateTax())}</span>
+                        <div style={{display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '12px', borderBottom: '1px solid #f3f4f6'}}>
+                          <span style={{color: '#6b7280'}}>Tax ({invoiceData.taxRate}%):</span>
+                          <span style={{fontWeight: '500', color: '#1f2937'}}>{formatCurrency(calculateTax())}</span>
                         </div>
                       )}
-                      <div className="flex justify-between py-3 text-lg font-bold border-t-2 border-gray-200 mt-2">
+                      <div style={{display: 'flex', justifyContent: 'space-between', padding: '10px 0', fontSize: '16px', fontWeight: 'bold', borderTop: '2px solid #1f2937', marginTop: '6px', color: '#1f2937'}}>
                         <span>Total:</span>
                         <span>{formatCurrency(calculateTotal())}</span>
                       </div>
@@ -518,27 +455,28 @@
                   </div>
 
                   {invoiceData.notes && (
-                    <div className="mb-6">
-                      <h3 className="font-semibold text-gray-700 mb-2">Notes:</h3>
-                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{invoiceData.notes}</p>
+                    <div style={{marginBottom: '20px'}}>
+                      <h3 style={{fontWeight: '600', color: '#374151', marginBottom: '6px', fontSize: '12px'}}>Notes:</h3>
+                      <p style={{fontSize: '11px', color: '#6b7280', whiteSpace: 'pre-wrap', lineHeight: '1.5', margin: '0'}}>{invoiceData.notes}</p>
                     </div>
                   )}
 
                   {invoiceData.terms && (
                     <div>
-                      <h3 className="font-semibold text-gray-700 mb-2">Terms & Conditions:</h3>
-                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{invoiceData.terms}</p>
+                      <h3 style={{fontWeight: '600', color: '#374151', marginBottom: '6px', fontSize: '12px'}}>Terms & Conditions:</h3>
+                      <p style={{fontSize: '11px', color: '#6b7280', whiteSpace: 'pre-wrap', lineHeight: '1.5', margin: '0'}}>{invoiceData.terms}</p>
                     </div>
                   )}
                 </div>
 
-                <button
-                  onClick={generatePDF}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-lg font-medium"
-                >
-                  <Download className="w-5 h-5" />
-                  Download PDF
-                </button>
+                <div className="grid grid-cols-2 gap-3 no-print">
+                  <button onClick={generatePDF} className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-lg font-medium">
+                    <Download className="w-5 h-5"/>Print / Save as PDF
+                  </button>
+                  <button onClick={uploadToGoogleDrive} className="flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors shadow-lg font-medium">
+                    <Cloud className="w-5 h-5"/>Save to Drive
+                  </button>
+                </div>
               </div>
             </div>
           </div>
